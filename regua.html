@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rankings — Sistema de Cobrança</title>
+  <link rel="stylesheet" href="css/global.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .podium {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 12px;
+      margin: 24px 0;
+    }
+    .podium-item {
+      text-align: center;
+      flex: 1;
+      max-width: 140px;
+    }
+    .podium-bar {
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding-bottom: 12px;
+      transition: all 0.4s;
+      cursor: default;
+    }
+    .podium-bar.first  { background: linear-gradient(180deg, #FFD700, #FFA000); min-height: 160px; }
+    .podium-bar.second { background: linear-gradient(180deg, #C0C0C0, #9E9E9E); min-height: 120px; }
+    .podium-bar.third  { background: linear-gradient(180deg, #CD7F32, #A1560F); min-height: 90px; }
+    .podium-medal { font-size: 2rem; margin-bottom: 4px; }
+    .podium-name { font-weight: 700; font-size: 0.75rem; color: white; padding: 0 6px; }
+    .podium-val  { font-size: 0.7rem; color: rgba(255,255,255,0.9); font-weight: 600; }
+    .podium-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.8);
+      background: rgba(255,255,255,0.2);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; color: white; font-size: 0.85rem;
+      margin: 0 auto 4px;
+    }
+
+    .ranking-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-color);
+      transition: background 0.15s;
+    }
+    .ranking-row:last-child { border-bottom: none; }
+    .ranking-row:hover { background: var(--blue-50); }
+    .rank-num {
+      font-size: 1.1rem;
+      font-weight: 800;
+      width: 32px;
+      text-align: center;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .rank-num.gold   { color: #FFA000; }
+    .rank-num.silver { color: #9E9E9E; }
+    .rank-num.bronze { color: #A1560F; }
+
+    .rank-meta-bar {
+      flex: 1;
+    }
+    .rank-meta-header {
+      display: flex; justify-content: space-between; margin-bottom: 4px;
+    }
+    .rank-pct {
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+    .rank-pct.super { color: var(--green-600); }
+    .rank-pct.good  { color: var(--blue-600); }
+    .rank-pct.warn  { color: var(--orange-500); }
+    .rank-pct.bad   { color: var(--red-500); }
+
+    .period-filters {
+      display: flex;
+      gap: 6px;
+    }
+    .period-btn {
+      padding: 6px 16px;
+      border: 2px solid var(--border-color);
+      border-radius: 99px;
+      background: var(--bg-card);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      transition: all 0.15s;
+      font-family: var(--font-main);
+    }
+    .period-btn.active, .period-btn:hover {
+      background: linear-gradient(135deg, var(--blue-500), var(--blue-800));
+      color: white;
+      border-color: transparent;
+    }
+  </style>
+</head>
+<body>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+
+<div class="page-container">
+
+  <div class="flex-between mb-6" style="flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 class="page-title">🏆 Rankings de Cobrança</h1>
+      <p class="page-subtitle">Desempenho das cobradoras por período</p>
+    </div>
+    <div class="period-filters">
+      <button class="period-btn" onclick="setPeriod('dia', this)">Hoje</button>
+      <button class="period-btn" onclick="setPeriod('semana', this)">Semana</button>
+      <button class="period-btn active" onclick="setPeriod('mes', this)">Mês</button>
+    </div>
+  </div>
+
+  <!-- Summary KPIs -->
+  <div class="grid-4 mb-6" id="ranking-kpis"></div>
+
+  <!-- Podium + Full Ranking -->
+  <div class="grid-2">
+    <!-- Podium -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🥇 Pódio</span>
+        <span class="badge badge-blue" id="podium-periodo-label">Este mês</span>
+      </div>
+      <div class="card-body">
+        <div class="podium" id="podium-display"></div>
+      </div>
+    </div>
+
+    <!-- Full List -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Ranking Completo</span>
+        <div class="flex gap-2">
+          <select class="form-control" id="rank-filtro-carteira" style="width:auto;padding:5px 10px;font-size:0.8rem" onchange="renderRanking()">
+            <option value="">Todas as Carteiras</option>
+            <option value="ATUAL">Atual (2 partes)</option>
+            <option value="ATRASADO">Atrasado (1 parte)</option>
+          </select>
+        </div>
+      </div>
+      <div id="ranking-list"></div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card mt-4">
+    <div class="card-header">
+      <span class="card-title">Comparativo de Performance</span>
+    </div>
+    <div class="card-body" style="padding:14px">
+      <canvas id="ranking-chart" height="100"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+buildNav('rankings');
+
+let currentPeriod = 'mes';
+let rankingChart = null;
+
+function setPeriod(period, btn) {
+  currentPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const labels = { dia: 'Hoje', semana: 'Esta semana', mes: 'Este mês' };
+  document.getElementById('podium-periodo-label').textContent = labels[period];
+  renderRanking();
+}
+
+function getPctClass(pct) {
+  const n = parseFloat(pct);
+  if (n >= 100) return 'super';
+  if (n >= 80)  return 'good';
+  if (n >= 50)  return 'warn';
+  return 'bad';
+}
+
+function renderRanking() {
+  const filtroCarteira = document.getElementById('rank-filtro-carteira')?.value || '';
+  let rankings = DB.getRankings(currentPeriod);
+  if (filtroCarteira) rankings = rankings.filter(r => r.carteira === filtroCarteira);
+
+  // KPIs
+  const totalRecebido = rankings.reduce((s,r) => s + r.recebido, 0);
+  const totalMeta = rankings.reduce((s,r) => s + r.meta_periodo, 0);
+  const pctGeral = totalMeta > 0 ? (totalRecebido / totalMeta * 100) : 0;
+  const supermeta = rankings.filter(r => parseFloat(r.pct_meta) >= 100).length;
+
+  document.getElementById('ranking-kpis').innerHTML = `
+    <div class="stat-card stat-card-blue">
+      <div class="stat-label">Total Recebido (Período)</div>
+      <div class="stat-value">${fmt.moeda(totalRecebido)}</div>
+      <div class="stat-sub">${fmt.pct(pctGeral)} da meta</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Cobradoras na Supermeta</div>
+      <div class="stat-value" style="color:var(--green-600)">${supermeta}</div>
+      <div class="stat-sub">de ${rankings.length} cobradoras</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Acordos</div>
+      <div class="stat-value">${fmt.num(rankings.reduce((s,r)=>s+r.acordos,0))}</div>
+      <div class="stat-sub">acordos no período</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Ligações</div>
+      <div class="stat-value">${fmt.num(rankings.reduce((s,r)=>s+r.ligacoes,0))}</div>
+      <div class="stat-sub">ligações realizadas</div>
+    </div>
+  `;
+
+  // Podium (top 3)
+  const top3 = rankings.slice(0, 3);
+  const order = [top3[1], top3[0], top3[2]].filter(Boolean);
+  const heights = [{ cls:'second', medal:'🥈' }, { cls:'first', medal:'🥇' }, { cls:'third', medal:'🥉' }];
+
+  document.getElementById('podium-display').innerHTML = order.map((r, i) => {
+    const h = heights[i];
+    return `
+      <div class="podium-item">
+        <div class="podium-bar ${h.cls}">
+          <div class="podium-avatar">${r.avatar}</div>
+          <div class="podium-medal">${h.medal}</div>
+          <div class="podium-name">${r.nome.split(' ')[0]}</div>
+          <div class="podium-val">${fmt.pct(r.pct_meta)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Full list
+  const medalColors = ['gold', 'silver', 'bronze'];
+  document.getElementById('ranking-list').innerHTML = rankings.map((r, i) => `
+    <div class="ranking-row">
+      <div class="rank-num ${medalColors[i] || ''}">${i < 3 ? ['🥇','🥈','🥉'][i] : i+1}</div>
+      <div class="avatar">${r.avatar}</div>
+      <div style="flex:1;min-width:0">
+        <div class="flex-between">
+          <span style="font-weight:700;font-size:0.9rem">${r.nome}</span>
+          <span class="badge badge-${r.carteira === 'ATUAL' ? 'blue' : 'orange'} text-xs">${r.carteira}</span>
+        </div>
+        <div class="rank-meta-bar mt-1">
+          <div class="rank-meta-header">
+            <span class="text-xs text-muted">${fmt.moeda(r.recebido)}</span>
+            <span class="rank-pct ${getPctClass(r.pct_meta)}">${fmt.pct(r.pct_meta)}</span>
+          </div>
+          <div class="progress-bar-wrap" style="height:6px">
+            <div class="progress-bar-fill ${parseFloat(r.pct_meta)>=100?'green':parseFloat(r.pct_meta)>=50?'':'orange'}"
+                 style="width:${Math.min(parseFloat(r.pct_meta),100)}%"></div>
+          </div>
+        </div>
+        <div class="flex gap-2 mt-1">
+          <span class="text-xs text-muted">🤝 ${r.acordos} acordos</span>
+          <span class="text-xs text-muted">📞 ${r.ligacoes} ligações</span>
+          <span class="text-xs text-muted">📅 ${r.dias_batidos}d batidos</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  // Chart
+  renderChart(rankings);
+}
+
+function renderChart(rankings) {
+  const ctx = document.getElementById('ranking-chart').getContext('2d');
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const textColor = isDark ? '#94a3b8' : '#6b7280';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+
+  if (rankingChart) rankingChart.destroy();
+  rankingChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rankings.map(r => r.nome.split(' ')[0]),
+      datasets: [
+        {
+          label: 'Recebido',
+          data: rankings.map(r => r.recebido),
+          backgroundColor: rankings.map(r =>
+            parseFloat(r.pct_meta) >= 100 ? 'rgba(67,160,71,0.8)' :
+            parseFloat(r.pct_meta) >= 70 ? 'rgba(25,118,210,0.8)' : 'rgba(245,124,0,0.7)'),
+          borderRadius: 6,
+          borderSkipped: false,
+        },
+        {
+          label: 'Meta',
+          data: rankings.map(r => r.meta_periodo),
+          backgroundColor: 'rgba(0,0,0,0.08)',
+          borderRadius: 6,
+          borderSkipped: false,
+          type: 'bar',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: textColor, font: { family: "'Plus Jakarta Sans'" } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmt.moeda(ctx.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: textColor } },
+        y: { grid: { color: gridColor }, ticks: { color: textColor, callback: v => 'R$'+Math.round(v/1000)+'k' } }
+      }
+    }
+  });
+}
+
+renderRanking();
+</script>
+</body>
+</html>

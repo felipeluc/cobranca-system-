@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuração de Metas — Sistema de Cobrança</title>
+  <link rel="stylesheet" href="css/global.css">
+  <style>
+    .meta-section {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1.5px solid var(--border-color);
+      box-shadow: var(--shadow-md);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .meta-section-header {
+      padding: 16px 20px;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 700;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    [data-theme="dark"] .meta-section-header { background: rgba(255,255,255,0.03); }
+    .meta-section-body { padding: 20px; }
+    .faixa-row {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr 1fr 1fr auto;
+      gap: 12px;
+      align-items: end;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .faixa-row:last-child { border-bottom: none; }
+    .preview-card {
+      background: linear-gradient(135deg, var(--blue-600), var(--blue-900));
+      border-radius: var(--radius-lg);
+      color: white;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .preview-card .stat-label { color: rgba(255,255,255,0.75); }
+    .preview-card .stat-value { color: white; }
+  </style>
+</head>
+<body>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+
+<div class="page-container">
+  <div class="flex-between mb-6">
+    <div>
+      <h1 class="page-title">🎯 Configuração de Metas</h1>
+      <p class="page-subtitle">Defina metas, comissões e bônus para as cobradoras</p>
+    </div>
+    <button class="btn btn-success" onclick="salvarMeta()">💾 Salvar Configuração</button>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-card mb-6" id="meta-preview">
+    <div class="text-xs text-muted mb-2" style="color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.05em;font-weight:700">Preview — Total Mensal a Receber</div>
+    <div style="font-size:2.2rem;font-weight:800;margin-bottom:8px" id="prev-total">R$ 0,00</div>
+    <div class="grid-2" style="gap:16px">
+      <div>
+        <div style="color:rgba(255,255,255,0.7);font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">● Atual (2 partes)</div>
+        <div style="font-size:1.2rem;font-weight:700" id="prev-atual">R$ 0,00</div>
+        <div style="color:rgba(255,255,255,0.7);font-size:0.8rem" id="prev-atual-por">Meta por cobradora: R$ 0,00</div>
+      </div>
+      <div>
+        <div style="color:rgba(255,255,255,0.7);font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">● Atrasado (1 parte)</div>
+        <div style="font-size:1.2rem;font-weight:700" id="prev-atrasado">R$ 0,00</div>
+        <div style="color:rgba(255,255,255,0.7);font-size:0.8rem" id="prev-atrasado-por">Meta por cobradora: R$ 0,00</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Base Geral -->
+  <div class="meta-section">
+    <div class="meta-section-header">📊 Base Geral</div>
+    <div class="meta-section-body">
+      <div class="grid-4">
+        <div class="form-group">
+          <label class="form-label">Total Mensal a Receber (R$)</label>
+          <input class="form-control" id="meta-total" type="number" placeholder="Ex: 4483728.78" oninput="updatePreview()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Qtd. Cobradoras — Atual</label>
+          <input class="form-control" id="meta-n-atual" type="number" min="1" oninput="updatePreview()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Qtd. Cobradoras — Atrasado</label>
+          <input class="form-control" id="meta-n-atrasado" type="number" min="1" oninput="updatePreview()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Distribuição Atual (%)</label>
+          <input class="form-control" id="meta-pct-atual" type="number" min="1" max="99" value="66.7" oninput="updatePreview()">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Faixas de Performance -->
+  <div class="meta-section">
+    <div class="meta-section-header">
+      🏆 Faixas de Performance
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="addFaixa()">+ Faixa</button>
+    </div>
+    <div class="meta-section-body">
+      <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr auto;gap:12px;padding:0 0 8px;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted)">
+        <div>Nome da Faixa</div>
+        <div>% da Meta</div>
+        <div>Comissão (R$)</div>
+        <div>Prod. Atual (auto)</div>
+        <div></div>
+      </div>
+      <div id="faixas-container"></div>
+    </div>
+  </div>
+
+  <!-- Meta Diária -->
+  <div class="meta-section">
+    <div class="meta-section-header">📅 Meta Diária</div>
+    <div class="meta-section-body">
+      <div class="grid-3">
+        <div class="form-group">
+          <label class="form-label">Dias Úteis no Mês</label>
+          <input class="form-control" id="meta-dias-uteis" type="number" value="26" oninput="updatePreview()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Meta Diária Atual (auto) (R$)</label>
+          <input class="form-control" id="meta-diaria-atual" readonly style="background:var(--gray-100)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Meta Diária Atrasado (auto) (R$)</label>
+          <input class="form-control" id="meta-diaria-atrasado" readonly style="background:var(--gray-100)">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bônus -->
+  <div class="meta-section">
+    <div class="meta-section-header">💰 Regras de Bônus</div>
+    <div class="meta-section-body">
+      <div class="grid-3">
+        <div class="form-group">
+          <label class="form-label">Valor do Bônus Diário (R$)</label>
+          <input class="form-control" id="bonus-diario" type="number" placeholder="25">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mínimo de Dias na Semana para Bônus</label>
+          <input class="form-control" id="bonus-min-dias" type="number" value="3" min="1" max="6">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Pagamento dos Bônus</label>
+          <select class="form-control" id="bonus-pagamento">
+            <option value="final_mes">Fim do mês, junto ao salário</option>
+            <option value="quinzenal">Quinzenal</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Tabela de bônus semanais -->
+      <h4 class="mt-4 mb-4" style="font-size:0.9rem">Tabela de Bônus Semanal</h4>
+      <div class="table-wrap">
+        <table id="bonus-table">
+          <thead><tr><th>Dias Batidos na Semana</th><th>Elegível?</th><th>Valor Semanal</th></tr></thead>
+          <tbody id="bonus-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+buildNav('metas');
+
+const user = DB.getCurrentUser();
+if (user.role !== 'gerente') {
+  document.querySelector('.page-container').innerHTML = `
+    <div class="empty-state" style="margin-top:80px">
+      <div style="font-size:3rem;margin-bottom:12px">🔒</div>
+      <h2 style="margin-bottom:8px">Acesso Restrito</h2>
+      <p>Apenas gerentes podem configurar metas.</p>
+      <button class="btn btn-primary mt-4" onclick="navigateTo('index.html')">← Voltar ao Dashboard</button>
+    </div>
+  `;
+}
+
+let faixas = [];
+let faixaIdx = 0;
+
+function loadConfig() {
+  const cfg = DB.getConfigMeta();
+  document.getElementById('meta-total').value = cfg.total_mensal;
+  document.getElementById('meta-n-atual').value = cfg.atual.n_cobradoras;
+  document.getElementById('meta-n-atrasado').value = cfg.atrasado.n_cobradoras;
+  document.getElementById('meta-dias-uteis').value = 26;
+  document.getElementById('bonus-diario').value = cfg.bonus_diario;
+  document.getElementById('bonus-min-dias').value = cfg.bonus_semanal_minimo_dias;
+
+  faixas = cfg.faixas.map((f, i) => ({ ...f, _idx: i }));
+  faixaIdx = faixas.length;
+  renderFaixas();
+  updatePreview();
+  renderBonusTable();
+}
+
+function addFaixa() {
+  faixas.push({ nome: `Faixa ${faixaIdx + 1}`, pct: 100, comissao: 0, _idx: faixaIdx++ });
+  renderFaixas();
+  updatePreview();
+}
+
+function removeFaixa(idx) {
+  faixas = faixas.filter(f => f._idx !== idx);
+  renderFaixas();
+  updatePreview();
+}
+
+function updateFaixa(idx, field, value) {
+  const f = faixas.find(f => f._idx === idx);
+  if (f) f[field] = field === 'nome' ? value : parseFloat(value) || 0;
+  updatePreview();
+}
+
+function renderFaixas() {
+  const total = parseFloat(document.getElementById('meta-total')?.value) || 0;
+  const pctAtual = parseFloat(document.getElementById('meta-pct-atual')?.value || 66.7) / 100;
+  const nAtual = parseInt(document.getElementById('meta-n-atual')?.value) || 1;
+  const metaAtual = total * pctAtual;
+
+  document.getElementById('faixas-container').innerHTML = faixas.map(f => {
+    const prodAtual = nAtual > 0 ? fmt.moeda((metaAtual / nAtual) * (f.pct / 100)) : 'R$ 0,00';
+    return `
+      <div class="faixa-row">
+        <div class="form-group" style="margin:0">
+          <input class="form-control" value="${f.nome}" onchange="updateFaixa(${f._idx},'nome',this.value)" placeholder="Nome da faixa">
+        </div>
+        <div class="form-group" style="margin:0">
+          <div style="position:relative">
+            <input class="form-control" type="number" value="${f.pct}" onchange="updateFaixa(${f._idx},'pct',this.value)" style="padding-right:28px">
+            <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:0.85rem">%</span>
+          </div>
+        </div>
+        <div class="form-group" style="margin:0">
+          <input class="form-control" type="number" value="${f.comissao}" onchange="updateFaixa(${f._idx},'comissao',this.value)" placeholder="0,00">
+        </div>
+        <div class="form-group" style="margin:0">
+          <input class="form-control" value="${prodAtual}" readonly style="background:var(--blue-50);color:var(--blue-700);font-weight:600">
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="removeFaixa(${f._idx})">✕</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function updatePreview() {
+  const total = parseFloat(document.getElementById('meta-total')?.value) || 0;
+  const pctAtual = parseFloat(document.getElementById('meta-pct-atual')?.value || 66.7) / 100;
+  const nAtual = parseInt(document.getElementById('meta-n-atual')?.value) || 1;
+  const nAtrasado = parseInt(document.getElementById('meta-n-atrasado')?.value) || 1;
+  const diasUteis = parseInt(document.getElementById('meta-dias-uteis')?.value) || 26;
+
+  const metaAtual = total * pctAtual;
+  const metaAtrasado = total * (1 - pctAtual);
+  const metaPorAtual = metaAtual / nAtual;
+  const metaPorAtrasado = metaAtrasado / nAtrasado;
+
+  document.getElementById('prev-total').textContent = fmt.moeda(total);
+  document.getElementById('prev-atual').textContent = fmt.moeda(metaAtual);
+  document.getElementById('prev-atual-por').textContent = `Meta por cobradora (${nAtual} pessoas): ${fmt.moeda(metaPorAtual)}`;
+  document.getElementById('prev-atrasado').textContent = fmt.moeda(metaAtrasado);
+  document.getElementById('prev-atrasado-por').textContent = `Meta por cobradora (${nAtrasado} pessoas): ${fmt.moeda(metaPorAtrasado)}`;
+
+  const diaria = diasUteis > 0 ? metaPorAtual / diasUteis : 0;
+  const diariaAt = diasUteis > 0 ? metaPorAtrasado / diasUteis : 0;
+  const mdEl = document.getElementById('meta-diaria-atual');
+  const mdAtEl = document.getElementById('meta-diaria-atrasado');
+  if (mdEl) mdEl.value = fmt.moeda(diaria);
+  if (mdAtEl) mdAtEl.value = fmt.moeda(diariaAt);
+
+  renderFaixas();
+  renderBonusTable();
+}
+
+function renderBonusTable() {
+  const bonusDiario = parseFloat(document.getElementById('bonus-diario')?.value) || 25;
+  const minDias = parseInt(document.getElementById('bonus-min-dias')?.value) || 3;
+
+  const rows = [3,4,5,6].map(d => {
+    const elegivel = d >= minDias;
+    const valor = elegivel ? bonusDiario * d : 0;
+    return `
+      <tr>
+        <td>${d} dias</td>
+        <td>${elegivel ? '<span class="badge badge-green">✓ Sim</span>' : '<span class="badge badge-red">✕ Não</span>'}</td>
+        <td class="text-mono" style="font-weight:${elegivel?700:400};color:${elegivel?'var(--green-600)':'var(--text-muted)'}">
+          ${elegivel ? fmt.moeda(valor) : 'R$ 0,00'}
+        </td>
+      </tr>
+    `;
+  });
+  rows.unshift(`<tr><td>0 a ${minDias-1} dias</td><td><span class="badge badge-red">✕ Não</span></td><td class="text-muted">R$ 0,00</td></tr>`);
+
+  const tb = document.getElementById('bonus-tbody');
+  if (tb) tb.innerHTML = rows.join('');
+}
+
+function salvarMeta() {
+  Toast.success('✅ Configuração de meta salva com sucesso!');
+  // TODO: POST /api/metas com os dados do formulário
+}
+
+loadConfig();
+</script>
+</body>
+</html>

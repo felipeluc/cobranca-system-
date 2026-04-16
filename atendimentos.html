@@ -1,0 +1,202 @@
+/**
+ * UTILITÁRIOS COMPARTILHADOS — SISTEMA DE COBRANÇA
+ */
+
+// ── Dark Mode ──────────────────────────────────────────────────────────────
+const Theme = {
+  init() {
+    const saved = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+    document.querySelectorAll('.dark-toggle').forEach(btn => {
+      btn.title = saved === 'dark' ? 'Modo claro' : 'Modo escuro';
+    });
+  },
+  toggle() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    document.querySelectorAll('.dark-toggle').forEach(btn => {
+      btn.title = next === 'dark' ? 'Modo claro' : 'Modo escuro';
+    });
+  }
+};
+
+// ── Toast Notifications ────────────────────────────────────────────────────
+const Toast = {
+  container: null,
+  init() {
+    if (!document.getElementById('toast-container')) {
+      const el = document.createElement('div');
+      el.id = 'toast-container';
+      document.body.appendChild(el);
+    }
+    this.container = document.getElementById('toast-container');
+  },
+  show(msg, type = 'info', duration = 3500) {
+    if (!this.container) this.init();
+    const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.innerHTML = `<span>${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
+    this.container.appendChild(t);
+    setTimeout(() => {
+      t.classList.add('exit');
+      t.addEventListener('animationend', () => t.remove());
+    }, duration);
+  },
+  success: (msg) => Toast.show(msg, 'success'),
+  error:   (msg) => Toast.show(msg, 'error'),
+  warning: (msg) => Toast.show(msg, 'warning'),
+  info:    (msg) => Toast.show(msg, 'info'),
+};
+
+// ── Modal Helpers ──────────────────────────────────────────────────────────
+const Modal = {
+  open(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+  },
+  close(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  },
+  closeOnOverlayClick(overlayId) {
+    const overlay = document.getElementById(overlayId);
+    if (!overlay) return;
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) this.close(overlayId);
+    });
+  }
+};
+
+// ── Hamburger Menu ─────────────────────────────────────────────────────────
+function initHamburger(btnId, menuId) {
+  const btn = document.getElementById(btnId);
+  const menu = document.getElementById(menuId);
+  if (!btn || !menu) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btn.classList.toggle('active');
+    menu.classList.toggle('active');
+  });
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target) && !btn.contains(e.target)) {
+      btn.classList.remove('active');
+      menu.classList.remove('active');
+    }
+  });
+}
+
+// ── Nav Navigation ─────────────────────────────────────────────────────────
+function navigateTo(page) {
+  window.location.href = page;
+}
+
+// ── Build Shared Nav ───────────────────────────────────────────────────────
+function buildNav(activeItem) {
+  const user = DB.getCurrentUser();
+  const isGerente = user.role === 'gerente';
+
+  const navItems = [
+    { id: 'dashboard',   label: 'Dashboard',              page: 'index.html',       icon: '🏠', roles: ['gerente','cobradora'] },
+    { id: 'calendario',  label: 'Calendário',             page: 'calendario.html',  icon: '📅', roles: ['gerente','cobradora'] },
+    { id: 'regua',       label: 'Régua de Cobrança',      page: 'regua.html',       icon: '📏', roles: ['gerente','cobradora'] },
+    { id: 'rankings',    label: 'Rankings',               page: 'rankings.html',    icon: '🏆', roles: ['gerente','cobradora'] },
+    { id: 'tarefas',     label: 'Minhas Tarefas',         page: 'tarefas.html',     icon: '✅', roles: ['gerente','cobradora'] },
+    { id: 'atendimentos',label: 'Atendimentos Internos',  page: 'atendimentos.html',icon: '💬', roles: ['gerente','cobradora'] },
+    { id: 'metas',       label: 'Configurar Metas',       page: 'metas.html',       icon: '🎯', roles: ['gerente'] },
+  ];
+
+  const items = navItems.filter(i => i.roles.includes(user.role));
+
+  const html = `
+    <nav class="top-nav">
+      <div class="flex gap-2">
+        <button class="hamburger-btn" id="hamburger-btn" title="Menu">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="nav-brand">
+          <div class="nav-brand-logo">CB</div>
+          <span>CobSystem</span>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <span class="text-sm text-muted" style="padding:0 8px">
+          Olá, <strong>${user.nome}</strong>
+          <span class="badge badge-${isGerente ? 'blue' : 'green'}" style="margin-left:6px">${isGerente ? 'Gerente' : 'Cobradora'}</span>
+        </span>
+        <button class="dark-toggle" onclick="Theme.toggle()" title="Alternar tema"></button>
+      </div>
+    </nav>
+
+    <div class="hamburger-menu" id="hamburger-menu">
+      ${items.map(i => `
+        <div class="menu-item ${i.id === activeItem ? 'active-page' : ''}" onclick="navigateTo('${i.page}')">
+          <span>${i.icon}</span>
+          <span>${i.label}</span>
+        </div>
+      `).join('')}
+      <div class="menu-item" style="border-top:2px solid var(--border-color); margin-top:4px">
+        <span>🔄</span>
+        <span onclick="switchRole()" style="cursor:pointer">
+          Trocar para ${isGerente ? 'Cobradora' : 'Gerente'} (demo)
+        </span>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('afterbegin', html);
+  initHamburger('hamburger-btn', 'hamburger-menu');
+}
+
+function switchRole() {
+  const user = DB.getCurrentUser();
+  DB.setUserRole(user.role === 'gerente' ? 'cobradora' : 'gerente');
+  location.reload();
+}
+
+// ── Format helpers (shortcuts) ─────────────────────────────────────────────
+const fmt = {
+  moeda: (v) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+  pct:   (v) => `${parseFloat(v ?? 0).toFixed(1)}%`,
+  data:  (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '-',
+  num:   (v) => (v ?? 0).toLocaleString('pt-BR'),
+};
+
+// ── Status label helpers ───────────────────────────────────────────────────
+function statusBadge(status) {
+  const map = {
+    vencido:      ['red',    '● Vencido'],
+    em_dia:       ['green',  '● Em dia'],
+    pendente:     ['yellow', '● Pendente'],
+    em_andamento: ['blue',   '● Em andamento'],
+    concluida:    ['green',  '✓ Concluída'],
+    resolvido:    ['green',  '✓ Resolvido'],
+    aberto:       ['red',    '● Aberto'],
+    ativo:        ['green',  '● Ativo'],
+    quebrado:     ['red',    '✕ Quebrado'],
+  };
+  const [color, label] = map[status] || ['gray', status];
+  return `<span class="badge badge-${color}">${label}</span>`;
+}
+
+function prioridadeBadge(p) {
+  const map = { alta: 'red', media: 'yellow', baixa: 'green' };
+  return `<span class="badge badge-${map[p] || 'gray'}">${p?.charAt(0).toUpperCase() + p?.slice(1)}</span>`;
+}
+
+// ── Initialize on DOM ready ────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  Theme.init();
+  Toast.init();
+});
+
+window.Theme = Theme;
+window.Toast = Toast;
+window.Modal = Modal;
+window.navigateTo = navigateTo;
+window.buildNav = buildNav;
+window.fmt = fmt;
+window.statusBadge = statusBadge;
+window.prioridadeBadge = prioridadeBadge;

@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Sistema de Cobrança</title>
+  <link rel="stylesheet" href="css/global.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+
+<div class="page-container" id="main-content">
+
+  <!-- Header -->
+  <div class="flex-between mb-6" style="flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 class="page-title" id="dash-title">Dashboard</h1>
+      <p class="page-subtitle" id="dash-subtitle">Visão geral do sistema de cobrança</p>
+    </div>
+    <div id="dash-filters" class="filter-bar" style="margin-bottom:0;padding:10px 14px">
+      <!-- gerente filters injected -->
+    </div>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="grid-4 mb-6" id="kpi-cards"></div>
+
+  <!-- Middle section -->
+  <div class="grid-2 mb-6" id="middle-section">
+    <!-- Meta progress card -->
+    <div class="card" id="meta-card">
+      <div class="card-header">
+        <span class="card-title">Progresso da Meta Mensal</span>
+        <span class="badge badge-blue" id="meta-faixa-badge">Calculando...</span>
+      </div>
+      <div class="card-body" id="meta-card-body"></div>
+    </div>
+
+    <!-- Recebimentos chart -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Recebimentos (Mês Atual)</span>
+        <span class="text-sm text-muted" id="chart-total-label"></span>
+      </div>
+      <div class="card-body" style="padding:14px">
+        <canvas id="recebimentos-chart" height="180"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom section: Clientes + Renegociações -->
+  <div class="grid-2 mb-6">
+    <!-- Clientes recentes -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Clientes em Cobrança</span>
+        <button class="btn btn-primary btn-sm" onclick="openClienteModal()">+ Ver Detalhes</button>
+      </div>
+      <div class="table-wrap">
+        <table id="clientes-table">
+          <thead><tr>
+            <th>Cliente</th><th>Carteira</th><th>Atraso</th><th>Valor</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="clientes-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Renegociações -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Renegociações</span>
+        <div class="flex gap-2">
+          <select class="form-control" id="reneg-filtro-periodo" style="width:auto;padding:5px 10px;font-size:0.8rem" onchange="renderRenegociacoes()">
+            <option value="todos">Todos os períodos</option>
+            <option value="mes">Este mês</option>
+            <option value="semana">Esta semana</option>
+          </select>
+          <select class="form-control" id="reneg-filtro-status" style="width:auto;padding:5px 10px;font-size:0.8rem" onchange="renderRenegociacoes()">
+            <option value="">Todos</option>
+            <option value="ativo">Ativo</option>
+            <option value="pendente">Pendente</option>
+            <option value="quebrado">Quebrado</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="reneg-table">
+          <thead><tr>
+            <th>Cliente</th><th>Val. Original</th><th>Val. Negociado</th><th>Parcelas</th><th>Status</th>
+          </tr></thead>
+          <tbody id="reneg-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Detalhe Cliente -->
+<div class="modal-overlay" id="modal-cliente">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modal-cliente-title">Detalhes do Cliente</h3>
+      <button class="modal-close" onclick="Modal.close('modal-cliente')">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-cliente-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="Modal.close('modal-cliente')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Recebimentos Detalhados -->
+<div class="modal-overlay" id="modal-recebimentos">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title">Detalhamento de Recebimentos</h3>
+      <button class="modal-close" onclick="Modal.close('modal-recebimentos')">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-recebimentos-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="Modal.close('modal-recebimentos')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ano = new Date().getFullYear();
+const mes = new Date().getMonth() + 1;
+const user = DB.getCurrentUser();
+const isGerente = user.role === 'gerente';
+
+// ── Nav ────────────────────────────────────────────────────────
+buildNav('dashboard');
+
+// ── Header & Filters (gerente) ────────────────────────────────
+function initHeaderFilters() {
+  document.getElementById('dash-title').textContent = isGerente ? 'Dashboard — Gerência' : `Meu Painel — ${user.nome}`;
+  document.getElementById('dash-subtitle').textContent = isGerente ? 'Visão consolidada de todas as carteiras' : 'Sua performance e carteira de clientes';
+
+  if (isGerente) {
+    const cobradoras = DB.getCobradoras();
+    document.getElementById('dash-filters').innerHTML = `
+      <div class="filter-group">
+        <label>Período</label>
+        <select id="filtro-periodo" onchange="renderAll()">
+          <option value="mes">Este mês</option>
+          <option value="semana">Esta semana</option>
+          <option value="dia">Hoje</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Carteira</label>
+        <select id="filtro-carteira" onchange="renderAll()">
+          <option value="">Todas</option>
+          <option value="ATUAL">Atual (2 partes)</option>
+          <option value="ATRASADO">Atrasado (1 parte)</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Cobradora</label>
+        <select id="filtro-cobradora" onchange="renderAll()">
+          <option value="">Todas</option>
+          ${cobradoras.map(c => `<option value="${c.id}">${c.nome}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  } else {
+    document.getElementById('dash-filters').style.display = 'none';
+  }
+}
+
+function getFilters() {
+  return {
+    periodo:    document.getElementById('filtro-periodo')?.value || 'mes',
+    carteira:   document.getElementById('filtro-carteira')?.value || '',
+    cobradora:  document.getElementById('filtro-cobradora')?.value || '',
+  };
+}
+
+// ── KPI Cards ─────────────────────────────────────────────────
+function renderKPIs() {
+  const filtros = isGerente ? getFilters() : { cobradora_id: user.id };
+  const clientes = DB.getClientes(isGerente ? {} : { cobradora_id: user.id });
+  const recebimentos = DB.getRecebimentos(ano, mes);
+  const totalRecebido = Object.values(recebimentos).reduce((s, d) => s + d.total, 0);
+  const meta = DB.getConfigMeta();
+  const vencidos = clientes.filter(c => c.status === 'vencido').length;
+  const emDia = clientes.filter(c => c.status === 'em_dia').length;
+  const renteg = DB.getRenegociacoes(isGerente ? {} : { cobradora_id: user.id });
+
+  const pctMeta = (totalRecebido / meta.atual.total) * 100;
+
+  const cards = [
+    { label: 'Total Recebido', value: fmt.moeda(totalRecebido), sub: `${fmt.pct(pctMeta)} da meta`, icon: '💰', color: 'blue', click: 'openRecebimentosModal()' },
+    { label: 'Clientes Ativos', value: fmt.num(clientes.length), sub: `${vencidos} vencidos / ${emDia} em dia`, icon: '👥', color: '' },
+    { label: 'Renegociações', value: fmt.num(renteg.length), sub: `${renteg.filter(r=>r.status==='ativo').length} ativas`, icon: '🤝', color: '' },
+    { label: 'Meta Mensal', value: fmt.moeda(meta.atual.total), sub: `Faixa atual: ${getFaixaAtual(pctMeta)}`, icon: '🎯', color: '', click: "navigateTo('metas.html')" },
+  ];
+
+  document.getElementById('kpi-cards').innerHTML = cards.map(c => `
+    <div class="stat-card ${c.color ? 'stat-card-'+c.color : ''}" ${c.click ? `onclick="${c.click}" style="cursor:pointer"` : ''}>
+      <div class="flex-between mb-4">
+        <span class="stat-label">${c.label}</span>
+        <span style="font-size:1.5rem">${c.icon}</span>
+      </div>
+      <div class="stat-value">${c.value}</div>
+      <div class="stat-sub mt-1">${c.sub}</div>
+    </div>
+  `).join('');
+}
+
+function getFaixaAtual(pct) {
+  const faixas = DB.getConfigMeta().faixas;
+  for (let i = faixas.length - 1; i >= 0; i--) {
+    if (pct >= faixas[i].pct) return faixas[i].nome;
+  }
+  return 'Abaixo Faixa 1';
+}
+
+// ── Meta Card ─────────────────────────────────────────────────
+function renderMetaCard() {
+  const recebimentos = DB.getRecebimentos(ano, mes);
+  const totalRecebido = Object.values(recebimentos).reduce((s, d) => s + d.total, 0);
+  const meta = DB.getConfigMeta();
+  const cobr = isGerente ? DB.getCobradoras() : [DB.getCobradoraById(user.id)];
+  const config = meta;
+
+  const pctAtual = Math.min((totalRecebido / config.atual.total) * 100, 150);
+  const faixaAtual = config.faixas.slice().reverse().find(f => pctAtual >= f.pct) || { nome: 'Abaixo Faixa 1', comissao: 0 };
+
+  document.getElementById('meta-faixa-badge').textContent = faixaAtual.nome;
+  document.getElementById('meta-card-body').innerHTML = `
+    <div style="margin-bottom:18px">
+      <div class="flex-between mb-4">
+        <span class="text-sm font-bold">Total Recebido</span>
+        <span class="text-sm font-bold">${fmt.moeda(totalRecebido)} / ${fmt.moeda(config.atual.total)}</span>
+      </div>
+      <div class="progress-bar-wrap" style="height:12px">
+        <div class="progress-bar-fill ${pctAtual >= 80 ? 'green' : pctAtual >= 50 ? '' : 'orange'}"
+             style="width:${Math.min(pctAtual,100)}%"></div>
+      </div>
+      <div class="flex-between mt-1">
+        <span class="text-xs text-muted">${fmt.pct(pctAtual)} da meta</span>
+        <span class="text-xs text-muted">Comissão atual: ${fmt.moeda(faixaAtual.comissao)}</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+      ${config.faixas.map(f => {
+        const pVal = Math.min(pctAtual, f.pct);
+        const atingiu = pctAtual >= f.pct;
+        return `
+          <div style="background:${atingiu ? 'var(--green-100)' : 'var(--gray-100)'};border-radius:10px;padding:12px;border:1.5px solid ${atingiu ? 'var(--green-500)' : 'var(--border-color)'}">
+            <div class="flex-between">
+              <span class="text-xs font-bold">${f.nome}</span>
+              <span style="font-size:1rem">${atingiu ? '✅' : '⬜'}</span>
+            </div>
+            <div class="text-sm" style="margin-top:4px">${f.pct}% — ${fmt.moeda(f.comissao)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="flex gap-2" style="flex-wrap:wrap">
+      <div class="chip">📅 Meta diária: ${fmt.moeda(config.meta_diaria_atual)}</div>
+      <div class="chip">🏆 Bônus diário: ${fmt.moeda(config.bonus_diario)}</div>
+    </div>
+  `;
+}
+
+// ── Recebimentos Chart ─────────────────────────────────────────
+let chartInstance = null;
+function renderChart() {
+  const recebimentos = DB.getRecebimentos(ano, mes);
+  const days = Object.keys(recebimentos).map(Number).sort((a,b) => a-b);
+  const values = days.map(d => recebimentos[d].total);
+  const total = values.reduce((s,v) => s+v, 0);
+  document.getElementById('chart-total-label').textContent = fmt.moeda(total);
+
+  const ctx = document.getElementById('recebimentos-chart').getContext('2d');
+  if (chartInstance) chartInstance.destroy();
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+  const textColor = isDark ? '#94a3b8' : '#6b7280';
+
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: days.map(d => `Dia ${d}`),
+      datasets: [{
+        label: 'Recebido',
+        data: values,
+        backgroundColor: 'rgba(25,118,210,0.7)',
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 10 }, maxRotation: 45 } },
+        y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 10 }, callback: v => 'R$' + (v/1000).toFixed(0) + 'k' } }
+      },
+      onClick: (e, items) => {
+        if (items.length > 0) {
+          const idx = items[0].index;
+          const day = days[idx];
+          openDayModal(day, recebimentos[day]);
+        }
+      }
+    }
+  });
+}
+
+// ── Clientes Table ─────────────────────────────────────────────
+function renderClientes() {
+  const clientes = DB.getClientes(isGerente ? {} : { cobradora_id: user.id });
+  document.getElementById('clientes-tbody').innerHTML = clientes.slice(0, 8).map(c => {
+    const cob = DB.getCobradoraById(c.cobradora_id);
+    return `
+      <tr>
+        <td>
+          <div class="flex gap-2" style="align-items:center">
+            <div class="avatar avatar-sm">${c.nome.split(' ').map(w=>w[0]).slice(0,2).join('')}</div>
+            <div>
+              <div style="font-weight:600;font-size:0.85rem">${c.nome}</div>
+              <div class="text-xs text-muted">${c.cpf}</div>
+            </div>
+          </div>
+        </td>
+        <td><span class="badge ${c.carteira === 'ATUAL' ? 'badge-blue' : 'badge-orange'}">${c.carteira}</span></td>
+        <td><span style="font-weight:600;color:${c.dias_atraso > 30 ? 'var(--red-500)' : c.dias_atraso > 0 ? 'var(--orange-500)' : 'var(--green-600)'}">${c.dias_atraso}d</span></td>
+        <td class="text-mono">${fmt.moeda(c.valor_total)}</td>
+        <td>${statusBadge(c.status)}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="openClienteDetalhe(${c.id})">Ver</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ── Renegociações Table ────────────────────────────────────────
+function renderRenegociacoes() {
+  const status = document.getElementById('reneg-filtro-status')?.value || '';
+  const reneg = DB.getRenegociacoes(isGerente ? {} : { cobradora_id: user.id });
+  const filtered = status ? reneg.filter(r => r.status === status) : reneg;
+  document.getElementById('reneg-tbody').innerHTML = filtered.map(r => `
+    <tr>
+      <td style="font-weight:600;font-size:0.85rem">${r.cliente_nome}</td>
+      <td class="text-mono">${fmt.moeda(r.valor_original)}</td>
+      <td class="text-mono" style="color:var(--green-600);font-weight:600">${fmt.moeda(r.valor_negociado)}</td>
+      <td>${r.parcelas}x</td>
+      <td>${statusBadge(r.status)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Modals ────────────────────────────────────────────────────
+function openRecebimentosModal() {
+  const recebimentos = DB.getRecebimentos(ano, mes);
+  const total = Object.values(recebimentos).reduce((s, d) => s + d.total, 0);
+  const meses = {};
+  Object.values(recebimentos).forEach(d => {
+    d.detalhes.forEach(det => {
+      meses[det.mes_referencia] = (meses[det.mes_referencia] || 0) + det.valor;
+    });
+  });
+  document.getElementById('modal-recebimentos-body').innerHTML = `
+    <div class="stat-card stat-card-blue mb-4" style="text-align:center">
+      <div class="stat-label">Total Recebido no Mês</div>
+      <div class="stat-value" style="font-size:2rem">${fmt.moeda(total)}</div>
+    </div>
+    <h4 style="margin-bottom:12px;font-size:0.9rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Por mês de referência</h4>
+    ${Object.entries(meses).map(([m, v]) => `
+      <div class="flex-between" style="padding:12px 0;border-bottom:1px solid var(--border-color)">
+        <span style="font-weight:600">${m}</span>
+        <span class="text-mono">${fmt.moeda(v)}</span>
+      </div>
+    `).join('')}
+  `;
+  Modal.open('modal-recebimentos');
+}
+
+function openDayModal(day, data) {
+  document.getElementById('modal-recebimentos-body').innerHTML = `
+    <div class="stat-card stat-card-blue mb-4" style="text-align:center">
+      <div class="stat-label">Recebido no Dia ${day}</div>
+      <div class="stat-value" style="font-size:2rem">${fmt.moeda(data.total)}</div>
+    </div>
+    <h4 style="margin-bottom:12px;font-size:0.9rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em">Detalhamento por mês de referência</h4>
+    ${data.detalhes.map(d => `
+      <div class="flex-between" style="padding:12px 0;border-bottom:1px solid var(--border-color)">
+        <span style="font-weight:600">${d.mes_referencia}</span>
+        <span class="text-mono">${fmt.moeda(d.valor)}</span>
+      </div>
+    `).join('')}
+  `;
+  Modal.open('modal-recebimentos');
+}
+
+function openClienteDetalhe(id) {
+  const c = DB.getClienteById(id);
+  const cob = DB.getCobradoraById(c.cobradora_id);
+  document.getElementById('modal-cliente-title').textContent = c.nome;
+  document.getElementById('modal-cliente-body').innerHTML = `
+    <div class="grid-2 mb-4">
+      <div>
+        <div class="form-label">CPF</div><div class="text-mono">${c.cpf}</div>
+      </div>
+      <div>
+        <div class="form-label">Telefone</div><div>${c.telefone}</div>
+      </div>
+      <div>
+        <div class="form-label">Carteira</div>
+        <span class="badge badge-${c.carteira === 'ATUAL' ? 'blue' : 'orange'}">${c.carteira}</span>
+      </div>
+      <div>
+        <div class="form-label">Cobradora</div><div>${cob?.nome || '-'}</div>
+      </div>
+      <div>
+        <div class="form-label">Dias em Atraso</div>
+        <span style="font-weight:700;color:${c.dias_atraso > 30 ? 'var(--red-500)' : 'var(--orange-500)'}">${c.dias_atraso} dias</span>
+      </div>
+      <div>
+        <div class="form-label">Parcelas Vencidas</div>
+        <span style="font-weight:700">${c.parcelas_vencidas}</span>
+      </div>
+      <div>
+        <div class="form-label">Valor Total em Aberto</div>
+        <span class="text-mono" style="font-weight:700;font-size:1.1rem">${fmt.moeda(c.valor_total)}</span>
+      </div>
+      <div>
+        <div class="form-label">Status</div>${statusBadge(c.status)}
+      </div>
+    </div>
+    <hr class="section-divider">
+    <h4 style="margin-bottom:12px">Ações Rápidas</h4>
+    <div class="flex gap-2" style="flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="Toast.info('Gerando link de PIX...')">💸 Gerar PIX</button>
+      <button class="btn btn-primary btn-sm" onclick="Toast.info('Gerando boleto...')">📄 Gerar Boleto</button>
+      <button class="btn btn-success btn-sm" onclick="Toast.info('Link de cartão copiado!')">💳 Link Cartão</button>
+      <button class="btn btn-ghost btn-sm" onclick="Toast.info('Abrindo renegociação...')">🤝 Renegociar</button>
+      <button class="btn btn-ghost btn-sm" onclick="Toast.info('Contestação registrada.')">⚠️ Contestar</button>
+    </div>
+  `;
+  Modal.open('modal-cliente');
+}
+
+function openClienteModal() {
+  // Open first client as example
+  const clientes = DB.getClientes(isGerente ? {} : { cobradora_id: user.id });
+  if (clientes.length > 0) openClienteDetalhe(clientes[0].id);
+}
+
+// ── Render All ────────────────────────────────────────────────
+function renderAll() {
+  renderKPIs();
+  renderMetaCard();
+  renderChart();
+  renderClientes();
+  renderRenegociacoes();
+}
+
+// Init
+initHeaderFilters();
+renderAll();
+Modal.closeOnOverlayClick('modal-cliente');
+Modal.closeOnOverlayClick('modal-recebimentos');
+</script>
+</body>
+</html>

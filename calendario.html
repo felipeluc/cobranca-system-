@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atendimentos Internos — Sistema de Cobrança</title>
+  <link rel="stylesheet" href="css/global.css">
+  <style>
+    .atend-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1.5px solid var(--border-color);
+      padding: 16px 18px;
+      margin-bottom: 10px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .atend-card:hover { box-shadow: var(--shadow-md); transform: translateX(3px); }
+    .atend-card.alta   { border-left: 4px solid var(--red-500); }
+    .atend-card.media  { border-left: 4px solid var(--yellow-600); }
+    .atend-card.baixa  { border-left: 4px solid var(--green-500); }
+    .categoria-map { display: flex; gap: 6px; align-items: center; }
+  </style>
+</head>
+<body>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+
+<div class="page-container">
+  <div class="flex-between mb-6" style="flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 class="page-title">Atendimentos Internos</h1>
+      <p class="page-subtitle">Solicitações, contestações e comunicados internos</p>
+    </div>
+    <button class="btn btn-primary" onclick="Modal.open('modal-novo-atend')">+ Novo Atendimento</button>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid-4 mb-6" id="atend-kpis"></div>
+
+  <!-- Tabs -->
+  <div class="tabs-nav">
+    <button class="tab-btn active" onclick="switchTab('todos',this)">📋 Todos</button>
+    <button class="tab-btn" onclick="switchTab('abertos',this)">🔴 Abertos</button>
+    <button class="tab-btn" onclick="switchTab('pendentes',this)">🟡 Pendentes</button>
+    <button class="tab-btn" onclick="switchTab('resolvidos',this)">✅ Resolvidos</button>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <div class="filter-group">
+      <label>Categoria</label>
+      <select id="filtro-cat" onchange="renderLista()">
+        <option value="">Todas</option>
+        <option value="contestacao">Contestação</option>
+        <option value="segunda_via">Segunda Via</option>
+        <option value="acordo">Acordo</option>
+        <option value="prorrogacao">Prorrogação</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Prioridade</label>
+      <select id="filtro-prioridade-at" onchange="renderLista()">
+        <option value="">Todas</option>
+        <option value="alta">Alta</option>
+        <option value="media">Média</option>
+        <option value="baixa">Baixa</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="lista-atendimentos"></div>
+</div>
+
+<!-- Modal: Novo Atendimento -->
+<div class="modal-overlay" id="modal-novo-atend">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title">Novo Atendimento</h3>
+      <button class="modal-close" onclick="Modal.close('modal-novo-atend')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Título *</label>
+        <input class="form-control" id="at-titulo" placeholder="Descreva o assunto">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Descrição *</label>
+        <textarea class="form-control" id="at-descricao" rows="4" placeholder="Detalhes do atendimento..."></textarea>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Categoria</label>
+          <select class="form-control" id="at-categoria">
+            <option value="contestacao">Contestação</option>
+            <option value="segunda_via">Segunda Via</option>
+            <option value="acordo">Acordo</option>
+            <option value="prorrogacao">Prorrogação</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prioridade</label>
+          <select class="form-control" id="at-prioridade">
+            <option value="alta">🔴 Alta</option>
+            <option value="media" selected>🟡 Média</option>
+            <option value="baixa">🟢 Baixa</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="Modal.close('modal-novo-atend')">Cancelar</button>
+      <button class="btn btn-success" onclick="salvarAtend()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Detalhe Atendimento -->
+<div class="modal-overlay" id="modal-detalhe-atend">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modal-at-title">Atendimento</h3>
+      <button class="modal-close" onclick="Modal.close('modal-detalhe-atend')">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-at-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="Modal.close('modal-detalhe-atend')">Fechar</button>
+      <button class="btn btn-success" id="btn-resolver" onclick="resolverAtend()">✅ Marcar como Resolvido</button>
+    </div>
+  </div>
+</div>
+
+<script>
+buildNav('atendimentos');
+const user = DB.getCurrentUser();
+let currentTab = 'todos';
+let currentAtendId = null;
+
+const categLabels = {
+  contestacao: '⚠️ Contestação',
+  segunda_via: '📄 Segunda Via',
+  acordo: '🤝 Acordo',
+  prorrogacao: '⏳ Prorrogação',
+};
+
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderLista();
+}
+
+function getAtendimentos() {
+  const isGerente = user.role === 'gerente';
+  return DB.getAtendimentos(isGerente ? {} : { cobradora_id: user.id });
+}
+
+function renderKPIs() {
+  const at = getAtendimentos();
+  document.getElementById('atend-kpis').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value">${at.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Abertos</div><div class="stat-value" style="color:var(--red-500)">${at.filter(a=>a.status==='aberto').length}</div></div>
+    <div class="stat-card"><div class="stat-label">Pendentes</div><div class="stat-value" style="color:var(--yellow-600)">${at.filter(a=>a.status==='pendente').length}</div></div>
+    <div class="stat-card"><div class="stat-label">Resolvidos</div><div class="stat-value" style="color:var(--green-600)">${at.filter(a=>a.status==='resolvido').length}</div></div>
+  `;
+}
+
+function renderLista() {
+  const cat = document.getElementById('filtro-cat')?.value || '';
+  const prio = document.getElementById('filtro-prioridade-at')?.value || '';
+  let at = getAtendimentos();
+
+  if (currentTab === 'abertos')    at = at.filter(a => a.status === 'aberto');
+  if (currentTab === 'pendentes')  at = at.filter(a => a.status === 'pendente');
+  if (currentTab === 'resolvidos') at = at.filter(a => a.status === 'resolvido');
+  if (cat) at = at.filter(a => a.categoria === cat);
+  if (prio) at = at.filter(a => a.prioridade === prio);
+
+  if (!at.length) {
+    document.getElementById('lista-atendimentos').innerHTML = `<div class="empty-state"><p>Nenhum atendimento encontrado.</p></div>`;
+    return;
+  }
+
+  document.getElementById('lista-atendimentos').innerHTML = at.map(a => {
+    const cob = DB.getCobradoraById(a.cobradora_id);
+    return `
+      <div class="atend-card ${a.prioridade}" onclick="abrirDetalhe(${a.id})">
+        <div class="flex-between">
+          <div class="flex gap-2" style="align-items:center">
+            <span style="font-size:1.1rem">${categLabels[a.categoria]?.split(' ')[0] || '📌'}</span>
+            <div>
+              <div style="font-weight:700;font-size:0.9rem">${a.titulo}</div>
+              <div class="text-xs text-muted">${fmt.data(a.data)} • ${cob?.nome || 'Desconhecido'}</div>
+            </div>
+          </div>
+          <div class="flex gap-2" style="align-items:center">
+            ${prioridadeBadge(a.prioridade)}
+            ${statusBadge(a.status)}
+          </div>
+        </div>
+        <div class="text-sm text-muted mt-2">${a.descricao}</div>
+        <div class="mt-2">
+          <span class="badge badge-blue text-xs">${categLabels[a.categoria] || a.categoria}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function abrirDetalhe(id) {
+  currentAtendId = id;
+  const a = DB.getAtendimentos().find(x => x.id === id);
+  if (!a) return;
+  const cob = DB.getCobradoraById(a.cobradora_id);
+
+  document.getElementById('modal-at-title').textContent = a.titulo;
+  document.getElementById('modal-at-body').innerHTML = `
+    <div class="grid-2 mb-4" style="gap:12px">
+      <div><div class="form-label">Status</div>${statusBadge(a.status)}</div>
+      <div><div class="form-label">Prioridade</div>${prioridadeBadge(a.prioridade)}</div>
+      <div><div class="form-label">Categoria</div><span class="badge badge-blue">${categLabels[a.categoria] || a.categoria}</span></div>
+      <div><div class="form-label">Data</div>${fmt.data(a.data)}</div>
+      <div><div class="form-label">Cobradora</div>${cob?.nome || '-'}</div>
+    </div>
+    <div class="form-label">Descrição</div>
+    <div style="background:var(--gray-50);border-radius:var(--radius-md);padding:14px;font-size:0.9rem;color:var(--text-secondary)">
+      ${a.descricao}
+    </div>
+  `;
+
+  const btnRes = document.getElementById('btn-resolver');
+  btnRes.style.display = a.status === 'resolvido' ? 'none' : '';
+  Modal.open('modal-detalhe-atend');
+}
+
+function resolverAtend() {
+  if (!currentAtendId) return;
+  DB.updateAtendimento(currentAtendId, { status: 'resolvido' });
+  Toast.success('Atendimento marcado como resolvido!');
+  Modal.close('modal-detalhe-atend');
+  renderAll();
+}
+
+function salvarAtend() {
+  const titulo = document.getElementById('at-titulo').value.trim();
+  const descricao = document.getElementById('at-descricao').value.trim();
+  if (!titulo || !descricao) { Toast.error('Preencha título e descrição.'); return; }
+  DB.addAtendimento({
+    titulo,
+    descricao,
+    categoria: document.getElementById('at-categoria').value,
+    prioridade: document.getElementById('at-prioridade').value,
+    status: 'aberto',
+    data: new Date().toISOString().split('T')[0],
+    cobradora_id: user.id || 1,
+  });
+  Toast.success('Atendimento registrado!');
+  Modal.close('modal-novo-atend');
+  document.getElementById('at-titulo').value = '';
+  document.getElementById('at-descricao').value = '';
+  renderAll();
+}
+
+function renderAll() {
+  renderKPIs();
+  renderLista();
+}
+
+renderAll();
+Modal.closeOnOverlayClick('modal-novo-atend');
+Modal.closeOnOverlayClick('modal-detalhe-atend');
+</script>
+</body>
+</html>
